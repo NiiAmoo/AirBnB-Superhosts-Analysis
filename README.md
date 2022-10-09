@@ -46,3 +46,6 @@ Contains saved plots and screenshots of the dashboard embedded in the report.
 
 ### **renv**
 Here you can find the `renv` package configuration folder. This package manager is necessary to install all dependencies used in this analysis.
+
+### **Report**
+The final report is an R-markdown document named Superhosts-Analysis-Report.
