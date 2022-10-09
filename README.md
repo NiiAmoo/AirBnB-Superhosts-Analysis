@@ -1,4 +1,4 @@
-# Eurowings Digital Assessment
+# AirBnB Superhosts Analysis
 
 The data for this projeect is AirBnB data provided by Eurowings
 
