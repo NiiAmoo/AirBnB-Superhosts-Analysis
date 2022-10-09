@@ -1,6 +1,6 @@
 # AirBnB Superhosts Analysis
 
-The data for this projeect is AirBnB data provided by Eurowings
+The data for this project is AirBnB data provided by Eurowings Digital and augmented with data from Kaggle.
 
 ## Requirements
 - Overall Goal: 
