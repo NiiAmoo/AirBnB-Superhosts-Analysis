@@ -1,0 +1,332 @@
+---
+title: "Superhost Analysis Report"
+author: "Nii Amoo Decardi-Nelson"
+date: '2022-07-24'
+output: html_document
+theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+Sys.setenv(TZ = 'GMT')
+library(tidyverse)
+library(plotly)
+library(recipes)
+library(ggridges)
+
+cbbPalette <- c("#56acc2","#872450")
+Palette2 <- c("#56acc2","#d8c3bb","#872450","#161616","#2f6b84")
+```
+
+## Executive Summary
+
+This report contains findings following an analysis of Eurowings' booking platform to evaluate the **superhosts** classification and  provide visibility to management on their performance as well as whether or not the classification is working as it should.  
+
+From the analysis, there is not much to differentiate between superhosts and normal hosts beyond the classification. This was made clearer through a series of hypothesis tests and inspecting the data for potential clusters. The analysis did not detect any meaningful and clearly defined segments with distinct features that could describe the two subgroups reasonably well. On the contrary, there were normal hosts who seemed to satisfy all the criteria necessary to achieve superhost status based on the analysis results.
+
+After interrogating the data, there seems to be sufficient evidence to support the claim that the superhost classification is working as expected. The observed distributions of some key features of superhosts such as their rating, response rate within a day and pricing had lesser variability as compared to those of the normal hosts. This tight distribution indicates that majority of the observations within that classification share very similar characteristics. In this case, some predefined eligibility criteria. 
+
+However, when considered in tandem with the findings on whether there were differences between hosts based on the superhost classification, there seems to be a disconnect. One might ask, if there are some normal hosts that pass the eligibility criteria for superhosts status, why aren't they classified as such? 
+My response, which is hypothetical, is that the superhost status is a **lagging indicator**.  This simply means it is awarded after the key events of interest have already occurred. This explains why some normal hosts are eligible, the implication will be that should the time horizon of the data be extended to include the next 3 months (which is how often hosts are evaluated), then those normal hosts should move into the superhosts category with the converse holding true all things being equal. 
+
+Findings based on this analysis show there isn't much distinction between the two groups and from a business point of view, there is not much difference based on the superhost classification on the key revenue inflows. Since the larger proportion of revenue is directly from listed prices and the tests show there is no significant difference in price between the two host classes, we can extend that result and infer that there is no significant difference in revenue contribution between the two classes. 
+
+For a conclusive decision on whether or not to continue running the superhost program, further analysis will be required, this time taking into account all existing and potential revenue sources as well as expenditure such as travel vouchers and larger referral bonuses incurred in the course of running and promoting the service.
+
+Finally, a PowerBI dashboard with the key metrics for accessing superhosts such as the response rate within 24hrs and overall rating as well as some other information relevant to the booking platform business such as location hotspots as well as booking and price trends overtime has been published for managements' consumption.
+
+
+```{r cars,echo=FALSE}
+#summary(cars)
+```
+
+## Business Problem
+
+Eurowings has been hugely successful in offering apartments and hotels on our website and is now scaling and optimizing its operations in the travel accommodation industry. As a result, management requested an assessment of the current host classification system in order to factor insights from key KPIs into their decisions during the upcoming product review. 
+
+The tasks included:
+
+1. An analysis of historical listings on our platform and visualizing valuable insights derived in a Power BI dashboard for use within the management team.
+
+2. Determine if there are any differences between a normal host and a Superhost other than those due to the Superhost classification.
+
+3. Determine if the Superhost classification is working correctly.
+
+
+## Data Preparation and Modeling
+Data obtained for the purpose of the analysis include:
+
+* `calendar.csv`: Records the price, availability and other details from the listing's calendar for each day. Ranges from Dec 2018 to Dec 2019.		
+* `listing_out.csv`: Records listing and their host information.
+* `listing.csv`: Additional listing details such as location coordinates.
+* `review_details.csv`: Records listing_id,date,reviewer name and id as well as comments for each listing.
+
+Calendar,listing and review_details were obtained from an external source (Kaggle) and used to augment the main data source listing_main with location information.
+
+The named data sets were loaded into, cleaned and analyzed in R to produce the summary data used to develop the dashboard. The data output of the R script includes:
+
+* `listing_main.csv` - this is a cleaned version of listing_out.csv.
+* `Hosts_main.csv` - contains unique host information from listing_main.csv summarized as averages for numerical fields like ratings as well as status indicators such as the superhost marker and host identity verification status
+* `review_means.csv` - contains the average review scores for each review factor according to whether or not a host is a superhost were derived and
+* `review_sentiments.csv` - contains average sentiment scores from review comments of listings per host.
+
+Detailed steps carried out for the analysis is documented in the R script `Superhosts_analysis.R`. Below is a high-level summary of processes followed for the analysis.
+
+1. Data sourcing 
+2. Data cleansing and feature extraction - This involved: 
+    - Removing rows with missing values for `host_is_superhost` 
+    - Checking the proportion of other categories with missing information and imputing them using the median based on the `host_is_superhost` indicator.
+    - Replacing missing values for `host_response_rate` with "missing"
+    - Dropping `square_feet`,`first_review_date`,`last_review_date`
+    - Deriving `host_profile_age` from `host_since`.
+    
+        The output of the steps above produce the `listing_main.csv` from which distinct `host_id` is extracted with summaries of the data per host yielding the `Host_main.csv` file. A further aggregation is performed to obtain summaries based on whether or not a host is a superhost, the result of which is saved in the `review_means.csv` file.
+        
+3. Generate and test the following hypotheses:
+    - Do superhosts have significantly higher ratings compared to normal hosts?
+    - Do superhosts charge more than normal hosts?
+    - Is the response time of superhosts a significant determinant of listing prices?
+    - Does the average listing price of hosts vary significantly based on room type?
+    - Do verified hosts charge higher prices for their listings?
+    - Is listing location a significant determinant of its price?
+    - Is host rating significantly affected by their identity verification status?
+    - Are there normal hosts who meet the criteria for being a superhost?
+    
+        These questions were posed to help get a clearer understanding of the main differences(if any) between super and normal hosts besides the classification.
+        
+4. Generate visuals
+5. Extracting sentiments from review comments - Is there a difference between sentiment scores for normal and superhosts. If there is, is it statistically significant?
+6. Cluster Analysis -  Are there other subgroups within the data set besides the superhost classification?
+
+
+## Results & Visualization
+This section highlights some results and findings following our hypotheses.
+
+#### Do superhosts have significantly higher ratings compared to normal hosts?
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE, fig.width=9,fig.height=6}
+hosts <- read_csv('data/Hosts_main.csv')
+
+review_box_plot <- hosts %>% 
+  select(host_is_superhost,review_scores_rating) %>%
+  ggplot(aes(x =host_is_superhost, y = review_scores_rating, fill = host_is_superhost)) + 
+   ggtitle('Boxplot of average reviews per superhost category') +
+  scale_fill_manual(values = cbbPalette) + 
+  geom_boxplot() + tidyquant::theme_tq()
+
+ggplotly(review_box_plot)
+
+# Yes, superhosts have significantly higher ratings
+```
+
+
+The boxplot of review ratings per host classification show a narrower range of ratings for superhosts than normal hosts which have average ratings as low as 20%. To validate this observation, we carry test the hypothesis:
+
+Ho: Average ratings for superhosts and normal hosts are equal
+
+H1: Avearge ratings for superhosts are higher than that for normal hosts.
+
+```{r,echo=FALSE}
+# 1. Do superhosts have significantly higher ratings
+hosts %>% select(host_is_superhost,review_scores_rating) %>% 
+  mutate( host_is_superhost = fct_rev(as.factor(host_is_superhost))) %>% 
+  t.test(review_scores_rating ~ host_is_superhost,data = .,
+         alternative = "greater",mu = 0 )
+```
+
+
+The results from the test reveal there is significant evidence to support the claim that superhosts have higher ratings than normal hosts on average.
+
+
+
+#### Do superhosts charge more than normal hosts?
+```{r,echo=FALSE,fig.width=9,fig.height=6}
+price_box_plot <- hosts %>% 
+  select(host_is_superhost,price) %>%
+  ggplot(aes(x = host_is_superhost, y = price, fill = host_is_superhost)) + 
+  ggtitle('Boxplot of listing prices per superhost category') +
+  scale_fill_manual(values = cbbPalette) + 
+  geom_boxplot() + tidyquant::theme_tq()
+
+ggplotly(price_box_plot)
+```
+
+
+Contrary to what one might expect, the price range for superhosts is narrower that that for normal hosts, going up to a little over a €1,000 whereas some normal hosts have average prices well over €2,000.
+
+The hypothesis test is as follows:
+
+Ho: Average price of listings for superhosts and normal hosts are equal
+
+H1: Avearge price of listings for superhosts are normal hosts are not equal
+
+
+```{r,echo = FALSE}
+#2. Do superhosts charge significantly higher prices
+hosts %>% select(host_is_superhost,price) %>% 
+  mutate( host_is_superhost = fct_rev(as.factor(host_is_superhost))) %>% 
+  t.test(price ~ host_is_superhost,data = .,
+         alternative = "greater",mu = 0 )
+
+# No, they don't. There's no significant difference between prices between 
+# listings by super and regular hosts
+```
+
+The result of the test indicates there's no significant difference in the mean prices charged by superhosts and normal hosts.
+
+
+Upon seeing this result, further tests were performed and the results showed reasonable evidence to suggest that the superhost status did not affect the prices of listings on average. Some drivers of listing prices included the neighbourhood, the type of room and the host's response time. Also, tests revealed being a verified host did not have any impact on prices of listings though it was statistically significant in light of their ratings.
+
+
+The plot below shows the distributions of prices for the top 5 neighbourhoods based on the number of listings after adjusting for outliers in prices in order to get a better view of the spread of prices per neighbourhood. Centrum-West, ranked third in terms of number of listings, turns out to have the widest spread in terms of price ranges when compared to the other neighbourhoods.
+
+
+```{r,echo=FALSE,fig.width=9,fig.height=6,warning=FALSE,message=FALSE}
+listing <- read_csv('data/listing_main.csv')
+
+# ridgeplot of price against superhost, neighbourhood
+neighbourhoods <- listing %>% 
+  select(host_is_superhost,neighbourhood_cleansed,price) %>% 
+  group_by(host_is_superhost,neighbourhood_cleansed) %>% 
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>% ungroup()
+
+selected_neighbourhoods <- unique(neighbourhoods$neighbourhood_cleansed)[c(1:5)] # ,17:22
+
+#Distribution of prices in top neighbourhoods
+prices_top_neighbourhoods_plot <- listing %>% 
+  filter(neighbourhood_cleansed %in% selected_neighbourhoods) %>% 
+  mutate(neighbourhood_cleansed = factor(neighbourhood_cleansed, levels = c(selected_neighbourhoods))) %>% 
+  select(neighbourhood_cleansed,price) %>% arrange(desc(price)) %>% 
+  ggplot(aes(x = price, y = fct_rev(neighbourhood_cleansed),
+             fill = neighbourhood_cleansed)) + xlim(c(0,500)) +
+  ggtitle('Distribution of listing prices in top 5 neighbourhoods') +
+  geom_density_ridges(stat = "binline",bins = 20) + ylab(label = "Neighbourhoods") +
+   scale_fill_manual(values = Palette2) + 
+  tidyquant::theme_tq() + theme(legend.position = "none")
+
+prices_top_neighbourhoods_plot
+
+```
+
+
+
+Out of curiosity, I considered whether there were normal hosts who met the criteria for being a superhost but were not.
+
+For a hosts to receive the superhost designation, they must have:
+
+* 4.8+ rating , this translates to 96%
+* 10+ stays or 100 nights over the last 3 completed stays
+* sub 1% cancellation rate
+* 90% response rate within 24hrs
+
+Normal hosts were then evaluated based on this criteria with some adjustments. For the number of stays, the number of reviews was used as a proxy and due to the absence of cancellation rate data, that evaluation criteria was not applied. 
+
+The results however showed **354(2.4%)** of normal hosts satisfied the three criteria. This is interesting because from a customers perspective, they can get superhost level of service from some normal hosts without having to compete with other customers who have a preference for superhosts.
+
+
+
+```{r,echo=FALSE}
+# response_rate within a day >= 90%
+# no_bookings >= 10  _ will use avg no_reviews as proxy
+# cancellation_rate - NA
+# review score >= 96%
+
+
+# Normal hosts that have superhost features
+next_superhosts <- hosts %>% filter(
+  host_is_superhost == FALSE &
+    host_response_time == names(summary(factor(hosts$host_response_time)))[3] &
+    host_response_rate >= 0.9 &
+    number_of_reviews >= 10 &
+    review_scores_rating >= 0.96
+)
+
+
+# paste('Approximately',
+#       scales::percent(dim(next_superhosts)[1]/dim(hosts %>%
+#                                                     filter(host_is_superhost == FALSE))[1],accuracy = 0.1),
+#       'of normal hosts qualify for superhost status') 
+
+```
+
+
+
+In the quest to uncover hidden relationships within the data, the data was transformed via a series of steps including standardization and normalization of the data and subsequently encoded in the recipe `hosts_recipe` in the `Superhosts.R ` script mentioned earlier. Subsequently a dimensionality reduction algorithm was ran on the data to reduce the complexity inherent in visualizing multiple columns. The algorithm of choice was UMAP (Uniform Manifold Approximation Projection) because of its ability to handle non-linear dimension reduction.  
+
+The output of the above steps were plotted in the graph below and colored according to the superhost status. The hypothesis was that, if the two groups were reasonably visible within this plot then that would imply that the classification and profile of superhosts goes beyond mere labeling and is an intrinsic element that describes host profiles. However, the plot reveals the points are not segmented in any fashion with superhosts and normal users almost evenly distributed throughout the plot. This further confirms that the difference between hosts is as a result of a rule-based system and not the underlying data.
+
+Another angle that was considered was whether there were other subgroups within the data besides the superhost classification. But again from the plot that does not seem to be the case. 
+
+```{r,echo=FALSE,fig.width=9,fig.height=6}
+knitr::include_url('images/umap_layout_plot_hosts_2.html')
+
+```
+The analysis also considered understanding the sentiments of reviewers and this was achieved using the `syuzhet` package in R. Review comments from `review_details.csv`  were analyzed and the sentiment score was generated with positive and negative values indicating positive and negative sentiments respectively. Subsequently, these sentiments were summarized via an average per `host_id` giving the average sentiment score of the hosts.
+
+Naturally, I was interested in whether superhosts had a higher sentiment score on average and as such
+looked at the distribution of average sentiment scores for super and normal hosts which resulted in the plot below.
+
+```{r,echo=FALSE,fig.width=9,fig.height=6,warning=FALSE,message=FALSE}
+host_sentiments <- read_csv('data/review_sentiments.csv')
+
+cbbPalette <- c("#56acc2","#872450")
+
+ggplotly(host_sentiments %>% group_by(host_id,host_is_superhost) %>%
+           filter(!is.na(host_is_superhost)) %>% 
+  summarise(sentiment = mean(sentiment)) %>% ggplot(aes(x = sentiment,fill = host_is_superhost )) + 
+  geom_density(alpha = 0.5) + ggtitle('Distribution of sentiments per superhost status') + xlab('average sentiment score') +
+    scale_fill_manual(values = cbbPalette) + 
+    tidyquant::theme_tq() )
+```
+
+The plot shows a narrower but concentrated range of sentiment values for superhosts, a theme that has been consistent with other features considered. The two distributions seem centered around the same area but with normal hosts having higher variability in mean sentiment scores. A hypothesis test revealed there is some difference between the mean sentiment scores for the two groups with superhosts having a significantly higher difference statistically. This is sound since it reflects similar results from the mean review ratings and one would expect a higher rating to naturally correspond with a more positive experience and as such a higher sentiment score.
+
+A short-coming of this analysis however was the inability to handle other languages. As such reviews in languages other that English received sentiment scores that are can not be relied upon. This is a potential area of improvement for future analysis to consider and will help hosts and Eurowings better understand our customers beyond the star-ratings.
+
+
+This concludes the analysis carried out in R. Highlights from that influenced the choice of visuals and information displayed in the PowerBi dashboard. 
+
+
+#### PowerBI Dashboard
+The dashboard developed will provide management with high-level visibility on the performance of superhosts.
+
+The top row of the dashboard has four metrics tracking:
+
+* **Total Revenue**: A KPI visual showing actual total revenue from superhosts against target revenue per quarter.
+* **Superhosts**: A gauge showing the proportion of superhosts, currently at 15.29% against a hypothetical target of 20%.
+* **Average review rating**: A gauge showing average review rating of superhosts, currently 97% against a target of 96%. 
+* **Response rate within 24hrs**: A gauge showing the average rate of response of superhosts within a day, currently appropriately 95% against a target of 90%.
+
+Next from the left we have:
+
+* **Top Neighbourhoods**: A stacked bar chart showing locations with the most number of listings broken down by the superhost status.
+
+At the Centre:
+
+* **Superhost Listing Locations**: A street map of Amsterdam showing the approximate coordinates of listings by superhosts and
+* **Number & Average Price of Listings Overtime**: A combo (line and clustered column) chart with the number of listings and average price per quarter. Number of listings is represented by columns with the primary axis to the left of the plot while average price is represented by the dashed line  and has its axis to the right of the plot (secondary axis).
+
+Over to the right:
+
+* **Average Review Scores**: A clusted column chart of review scores for the various review areas and 
+* **Average Prices of Listings**: A ribbon chart showing the average price of listings per room type also segregated based on the superhost status.
+
+Below is a snapshot of the developed dashboard.
+
+![Superhosts Dashboard](images/dashboard.png)
+
+
+
+## Conclusion
+
+The takeaways from this analysis are the following:
+
+1. There is not much significant difference between superhosts and normal hosts as the two categories do not form clearly defined clusters.
+2. The superhost classification is working as expected. However, stakeholders must be aware it is a **lagging indicator** and only reflects the past performance of the host.
+3. As a follow up from the previous point, there are normal hosts who seem to have qualified to become superhosts. It might be prudent for business to consider how certain arrangements can be made for these hosts. Perhaps more frequent tracking/monitoring or an indication to customers that this host is a *"top host at the moment"* might help reduce that lagging effect and give a truer picture of host performance.
+4. Sentiments of review comments for superhosts are largely positive which is expected given that average review rates of superhosts are also high.
+5. A trend of average price and total number of listings in the dashboard will benefit from a wider time range in order to better identify and capitalize on potential seasonalities. 
+6. Further analysis will be required with data on all revenue and cost lines to help make an objective decision on the superhost program.
